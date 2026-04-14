@@ -67,7 +67,10 @@ def expand_question_to_queries(question: str) -> list[str]:
         prioritized.extend(
             [
                 "include_router",
+                "self.router.include_router",
                 "APIRouter",
+                "router.get",
+                "router.post",
                 "router",
                 "route",
             ]
@@ -87,6 +90,8 @@ def expand_question_to_queries(question: str) -> list[str]:
                 "app.post",
                 "app.put",
                 "app.delete",
+                "router.get",
+                "router.post",
                 "include_router",
                 "APIRouter",
                 "urlpatterns",
@@ -115,8 +120,14 @@ def expand_question_to_queries(question: str) -> list[str]:
     if "fastapi" in lowered:
         prioritized.extend(
             [
+                "include_router",
+                "self.router.include_router",
                 "FastAPI(",
                 "class FastAPI",
+                "app.get",
+                "app.post",
+                "router.get",
+                "router.post",
             ]
         )
 
@@ -126,6 +137,7 @@ def expand_question_to_queries(question: str) -> list[str]:
                 "app.get",
                 "app.use",
                 "router",
+                "route",
             ]
         )
 
@@ -139,7 +151,40 @@ def expand_question_to_queries(question: str) -> list[str]:
             seen.add(q)
             unique_queries.append(q)
 
-    return unique_queries[:15]
+    return unique_queries[:20]
+
+
+def score_file(path: str) -> int:
+    path = path.lower().replace("\\", "/")
+    score = 0
+
+    # High-value files
+    if "routing" in path:
+        score += 6
+    if "router" in path:
+        score += 6
+    if "application" in path or "applications" in path:
+        score += 4
+    if "/urls.py" in path or path.endswith("urls.py"):
+        score += 7
+    if "conf/urls" in path:
+        score += 6
+    if "views" in path:
+        score += 2
+
+    # Low-value files
+    if "migrations" in path:
+        score -= 8
+    if "tests" in path or "/test/" in path:
+        score -= 5
+    if "examples" in path or "example" in path:
+        score -= 5
+    if "docs" in path or "docs_src" in path:
+        score -= 6
+    if "__pycache__" in path:
+        score -= 10
+
+    return score
 
 
 @router.post("/", response_model=RepositoryOut)
@@ -310,13 +355,16 @@ def search_repository_chunks(
         query = query.filter(~normalized_path.like("benchmarks/%"))
         query = query.filter(~normalized_path.like("benchmark/%"))
 
-    results = (
-        query.order_by(
-            RepoFile.file_type.in_(preferred_types).desc(),
-            RepoFile.path.asc(),
-        )
-        .limit(limit)
-        .all()
+    results = query.limit(limit).all()
+
+    results = sorted(
+        results,
+        key=lambda row: (
+            score_file(row.file_path),
+            1 if row.file_type in preferred_types else 0,
+            row.file_path.lower(),
+        ),
+        reverse=True,
     )
 
     return [
@@ -396,13 +444,16 @@ def retrieve_relevant_chunks(
             query = query.filter(~normalized_path.like("benchmarks/%"))
             query = query.filter(~normalized_path.like("benchmark/%"))
 
-        results = (
-            query.order_by(
-                RepoFile.file_type.in_(preferred_types).desc(),
-                RepoFile.path.asc(),
-            )
-            .limit(limit)
-            .all()
+        results = query.limit(limit * 3).all()
+
+        results = sorted(
+            results,
+            key=lambda row: (
+                score_file(row.file_path),
+                1 if row.file_type in preferred_types else 0,
+                row.file_path.lower(),
+            ),
+            reverse=True,
         )
 
         for row in results:
@@ -425,7 +476,13 @@ def retrieve_relevant_chunks(
             if len(collected) >= limit:
                 return collected
 
-    return collected
+    collected = sorted(
+        collected,
+        key=lambda item: score_file(item["file_path"]),
+        reverse=True,
+    )
+
+    return collected[:limit]
 
 
 @router.post("/{repo_id}/ask", response_model=AskResponse)

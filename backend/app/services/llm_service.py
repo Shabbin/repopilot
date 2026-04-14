@@ -50,10 +50,10 @@ def generate_answer(question: str, contexts: list[dict]) -> str:
                 "model": OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False,
-                "options": {
-                    "num_predict": 200,
-                    "temperature": 0.2,
-                },
+              "options": {
+    "num_predict": 120,
+    "temperature": 0.2,
+},
             },
             timeout=120,
         )
