@@ -20,6 +20,7 @@ from app.services.chunk_service import (
     read_file_content,
 )
 from app.services.file_service import scan_repository_files
+from app.services.llm_service import generate_answer
 from app.services.repo_service import clone_repository
 
 router = APIRouter(prefix="/repositories", tags=["repositories"])
@@ -62,16 +63,16 @@ def expand_question_to_queries(question: str) -> list[str]:
     prioritized = []
     lowered = {k.lower() for k in keywords}
 
-    # FastAPI / router-style
     if "router" in lowered or "routers" in lowered:
-        prioritized.extend([
-            "include_router",
-            "APIRouter",
-            "router",
-            "route",
-        ])
+        prioritized.extend(
+            [
+                "include_router",
+                "APIRouter",
+                "router",
+                "route",
+            ]
+        )
 
-    # General route keywords
     if (
         "route" in lowered
         or "routes" in lowered
@@ -80,48 +81,53 @@ def expand_question_to_queries(question: str) -> list[str]:
         or "routed" in lowered
         or "routing" in lowered
     ):
-        prioritized.extend([
-            "app.get",
-            "app.post",
-            "app.put",
-            "app.delete",
-            "include_router",
-            "APIRouter",
-            "urlpatterns",
-            "path(",
-            "re_path(",
-            "include(",
-            "URLResolver",
-            "URLPattern",
-            "route",
-            "router",
-        ])
+        prioritized.extend(
+            [
+                "app.get",
+                "app.post",
+                "app.put",
+                "app.delete",
+                "include_router",
+                "APIRouter",
+                "urlpatterns",
+                "path(",
+                "re_path(",
+                "include(",
+                "URLResolver",
+                "URLPattern",
+                "route",
+                "router",
+            ]
+        )
 
-    # Django-specific
     if "django" in lowered or "url" in lowered or "urls" in lowered:
-        prioritized.extend([
-            "urlpatterns",
-            "path(",
-            "re_path(",
-            "include(",
-            "URLResolver",
-            "URLPattern",
-        ])
+        prioritized.extend(
+            [
+                "urlpatterns",
+                "path(",
+                "re_path(",
+                "include(",
+                "URLResolver",
+                "URLPattern",
+            ]
+        )
 
-    # FastAPI-specific
     if "fastapi" in lowered:
-        prioritized.extend([
-            "FastAPI(",
-            "class FastAPI",
-        ])
+        prioritized.extend(
+            [
+                "FastAPI(",
+                "class FastAPI",
+            ]
+        )
 
-    # Express-specific
     if "express" in lowered:
-        prioritized.extend([
-            "app.get",
-            "app.use",
-            "router",
-        ])
+        prioritized.extend(
+            [
+                "app.get",
+                "app.use",
+                "router",
+            ]
+        )
 
     prioritized.extend(keywords)
     prioritized.append(raw)
@@ -438,14 +444,7 @@ def ask_repository(repo_id: int, payload: AskRequest, db: Session = Depends(get_
         exclude_examples=payload.exclude_examples,
     )
 
-    if not contexts:
-        answer = "No relevant code found in the repository."
-    else:
-        files = list({c["file_path"] for c in contexts[:3]})
-        answer = (
-            f"Found relevant code in: {', '.join(files)}. "
-            f"Top matches suggest this relates to '{payload.question}'."
-        )
+    answer = generate_answer(payload.question, contexts)
 
     return {
         "question": payload.question,

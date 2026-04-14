@@ -136,7 +136,7 @@ export default function Home() {
   `${API_BASE_URL}/repositories/${selectedRepoId}/ask`,
   {
     question,
-    limit: 5,
+    limit: 3,
     code_only: true,
     exclude_docs: true,
     exclude_examples: true,
