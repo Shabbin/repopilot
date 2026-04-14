@@ -34,40 +34,87 @@ export default function Home() {
   const [selectedRepoId, setSelectedRepoId] = useState<number | "">("");
   const [question, setQuestion] = useState("");
   const [response, setResponse] = useState<AskResponse | null>(null);
+
+  const [repoName, setRepoName] = useState("");
+  const [repoUrl, setRepoUrl] = useState("");
+
   const [isLoadingRepos, setIsLoadingRepos] = useState(true);
+  const [isImporting, setIsImporting] = useState(false);
   const [isAsking, setIsAsking] = useState(false);
+
   const [error, setError] = useState("");
+  const [importMessage, setImportMessage] = useState("");
 
   const selectedRepo = useMemo(
     () => repositories.find((repo) => repo.id === selectedRepoId),
     [repositories, selectedRepoId]
   );
 
-  useEffect(() => {
-    const fetchRepositories = async () => {
-      try {
-        setIsLoadingRepos(true);
-        setError("");
+  const fetchRepositories = async () => {
+    try {
+      setIsLoadingRepos(true);
+      const res = await axios.get<Repository[]>(`${API_BASE_URL}/repositories/`);
+      setRepositories(res.data);
 
-        const res = await axios.get<Repository[]>(
-          `${API_BASE_URL}/repositories/`
-        );
-
-        setRepositories(res.data);
-
-        if (res.data.length > 0) {
-          setSelectedRepoId(res.data[0].id);
-        }
-      } catch (err) {
-        console.error(err);
-        setError("Failed to load repositories. Make sure the backend is running.");
-      } finally {
-        setIsLoadingRepos(false);
+      if (res.data.length > 0) {
+        setSelectedRepoId((prev) => prev || res.data[0].id);
+      } else {
+        setSelectedRepoId("");
       }
-    };
+    } catch (err) {
+      console.error(err);
+      setError("Failed to load repositories. Make sure the backend is running.");
+    } finally {
+      setIsLoadingRepos(false);
+    }
+  };
 
+  useEffect(() => {
     fetchRepositories();
   }, []);
+
+ const handleImportRepository = async () => {
+  if (!repoName.trim()) {
+    setError("Please enter a repository name.");
+    return;
+  }
+
+  if (!repoUrl.trim()) {
+    setError("Please enter a GitHub repository URL.");
+    return;
+  }
+
+  try {
+    setIsImporting(true);
+    setError("");
+    setImportMessage("");
+
+    const res = await axios.post<Repository>(`${API_BASE_URL}/repositories/`, {
+      name: repoName.trim(),
+      github_url: repoUrl.trim(),
+    });
+
+    const importedRepo = res.data;
+
+    setImportMessage(`Repository "${importedRepo.name}" imported. Ingesting code chunks...`);
+
+    await axios.post(`${API_BASE_URL}/repositories/${importedRepo.id}/ingest-chunks`);
+
+    await fetchRepositories();
+    setSelectedRepoId(importedRepo.id);
+
+    setImportMessage(
+      `Repository "${importedRepo.name}" imported and chunked successfully.`
+    );
+    setRepoName("");
+    setRepoUrl("");
+  } catch (err) {
+    console.error(err);
+    setError("Failed to import repository or ingest chunks.");
+  } finally {
+    setIsImporting(false);
+  }
+};
 
   const handleAsk = async () => {
     if (!selectedRepoId) {
@@ -85,15 +132,16 @@ export default function Home() {
       setError("");
       setResponse(null);
 
-      const res = await axios.post<AskResponse>(
-        `${API_BASE_URL}/repositories/${selectedRepoId}/ask`,
-        {
-          question,
-          limit: 5,
-          code_only: true,
-          exclude_docs: true,
-        }
-      );
+    const res = await axios.post<AskResponse>(
+  `${API_BASE_URL}/repositories/${selectedRepoId}/ask`,
+  {
+    question,
+    limit: 5,
+    code_only: true,
+    exclude_docs: true,
+    exclude_examples: true,
+  }
+);
 
       setResponse(res.data);
     } catch (err) {
@@ -115,83 +163,136 @@ export default function Home() {
             AI Software Engineering Assistant
           </h1>
           <p className="mt-3 max-w-3xl text-slate-300">
-            Ask repository-aware engineering questions and inspect the retrieved
-            code context behind each answer.
+            Import repositories, ask repository-aware engineering questions, and
+            inspect the retrieved code context behind each answer.
           </p>
         </header>
 
         <section className="grid gap-6 lg:grid-cols-[380px_1fr]">
-          <aside className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
-            <h2 className="text-xl font-semibold">Ask the repository</h2>
-            <p className="mt-2 text-sm text-slate-400">
-              Choose a repository, write a technical question, and inspect the
-              retrieved code chunks.
-            </p>
+          <aside className="space-y-6">
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
+              <h2 className="text-xl font-semibold">Import repository</h2>
+              <p className="mt-2 text-sm text-slate-400">
+                Add a public GitHub repository to RepoPilot.
+              </p>
 
-            <div className="mt-6 space-y-5">
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-200">
-                  Repository
-                </label>
-                <select
-                  className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition focus:border-cyan-500"
-                  value={selectedRepoId}
-                  onChange={(e) =>
-                    setSelectedRepoId(
-                      e.target.value ? Number(e.target.value) : ""
-                    )
-                  }
-                  disabled={isLoadingRepos || repositories.length === 0}
+              <div className="mt-6 space-y-4">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-200">
+                    Repository name
+                  </label>
+                  <input
+                    type="text"
+                    value={repoName}
+                    onChange={(e) => setRepoName(e.target.value)}
+                    placeholder="Example: fastapi-sample"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition focus:border-cyan-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-200">
+                    GitHub URL
+                  </label>
+                  <input
+                    type="text"
+                    value={repoUrl}
+                    onChange={(e) => setRepoUrl(e.target.value)}
+                    placeholder="https://github.com/tiangolo/fastapi.git"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition focus:border-cyan-500"
+                  />
+                </div>
+
+                <button
+                  onClick={handleImportRepository}
+                  disabled={isImporting}
+                  className="w-full rounded-xl bg-slate-100 px-4 py-3 font-medium text-slate-950 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {repositories.length === 0 ? (
-                    <option value="">No repositories found</option>
-                  ) : (
-                    repositories.map((repo) => (
-                      <option key={repo.id} value={repo.id}>
-                        {repo.name} (ID: {repo.id})
-                      </option>
-                    ))
-                  )}
-                </select>
+                  {isImporting ? "Importing..." : "Import Repository"}
+                </button>
+
+                {importMessage && (
+                  <div className="rounded-xl border border-emerald-900 bg-emerald-950/40 p-3 text-sm text-emerald-300">
+                    {importMessage}
+                  </div>
+                )}
               </div>
+            </div>
 
-              {selectedRepo && (
-                <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
-                  <p className="text-sm font-medium text-slate-200">
-                    Selected repository
-                  </p>
-                  <p className="mt-2 text-sm text-slate-300">{selectedRepo.name}</p>
-                  <p className="mt-1 break-all text-xs text-slate-500">
-                    {selectedRepo.github_url}
-                  </p>
+            <div className="rounded-2xl border border-slate-800 bg-slate-900 p-5 shadow-xl">
+              <h2 className="text-xl font-semibold">Ask the repository</h2>
+              <p className="mt-2 text-sm text-slate-400">
+                Choose a repository, write a technical question, and inspect the
+                retrieved code chunks.
+              </p>
+
+              <div className="mt-6 space-y-5">
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-200">
+                    Repository
+                  </label>
+                  <select
+                    className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition focus:border-cyan-500"
+                    value={selectedRepoId}
+                    onChange={(e) =>
+                      setSelectedRepoId(
+                        e.target.value ? Number(e.target.value) : ""
+                      )
+                    }
+                    disabled={isLoadingRepos || repositories.length === 0}
+                  >
+                    {repositories.length === 0 ? (
+                      <option value="">No repositories found</option>
+                    ) : (
+                      repositories.map((repo) => (
+                        <option key={repo.id} value={repo.id}>
+                          {repo.name} (ID: {repo.id})
+                        </option>
+                      ))
+                    )}
+                  </select>
                 </div>
-              )}
 
-              <div>
-                <label className="mb-2 block text-sm font-medium text-slate-200">
-                  Question
-                </label>
-                <textarea
-                  className="min-h-[140px] w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition focus:border-cyan-500"
-                  placeholder="Example: How does FastAPI include routers?"
-                  value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
-                />
+                {selectedRepo && (
+                  <div className="rounded-xl border border-slate-800 bg-slate-950 p-4">
+                    <p className="text-sm font-medium text-slate-200">
+                      Selected repository
+                    </p>
+                    <p className="mt-2 text-sm text-slate-300">
+                      {selectedRepo.name}
+                    </p>
+                    <p className="mt-1 break-all text-xs text-slate-500">
+                      {selectedRepo.github_url}
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="mb-2 block text-sm font-medium text-slate-200">
+                    Question
+                  </label>
+                  <textarea
+                    className="min-h-[140px] w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-sm outline-none transition focus:border-cyan-500"
+                    placeholder="Example: How does FastAPI include routers?"
+                    value={question}
+                    onChange={(e) => setQuestion(e.target.value)}
+                  />
+                </div>
+
+                <button
+                  onClick={handleAsk}
+                  disabled={isAsking || isLoadingRepos}
+                  className="w-full rounded-xl bg-cyan-500 px-4 py-3 font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isAsking ? "Asking..." : "Ask RepoPilot"}
+                </button>
+
+                {error && (
+                  <div className="rounded-xl border border-red-900 bg-red-950/40 p-3 text-sm text-red-300">
+                    {error}
+                  </div>
+                )}
               </div>
-
-              <button
-                onClick={handleAsk}
-                disabled={isAsking || isLoadingRepos}
-                className="w-full rounded-xl bg-cyan-500 px-4 py-3 font-medium text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isAsking ? "Asking..." : "Ask RepoPilot"}
-              </button>
-
-              {error && (
-                <div className="rounded-xl border border-red-900 bg-red-950/40 p-3 text-sm text-red-300">
-                  {error}
-                </div>
-              )}
             </div>
           </aside>
 
@@ -250,8 +351,9 @@ export default function Home() {
                           {context.file_path}
                         </p>
                         <p className="mt-1 text-xs text-slate-500">
-                          {context.file_type || "unknown"} • chunk {context.chunk_index} •
-                          lines {context.start_line}-{context.end_line}
+                          {context.file_type || "unknown"} • chunk{" "}
+                          {context.chunk_index} • lines {context.start_line}-
+                          {context.end_line}
                         </p>
                       </div>
 

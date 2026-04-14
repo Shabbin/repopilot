@@ -6,6 +6,7 @@ class AskRequest(BaseModel):
     limit: int = 5
     code_only: bool = True
     exclude_docs: bool = True
+    exclude_examples: bool = True
 
 
 class AskContextItem(BaseModel):

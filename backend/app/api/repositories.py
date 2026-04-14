@@ -30,9 +30,28 @@ def expand_question_to_queries(question: str) -> list[str]:
 
     tokens = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", raw)
     stopwords = {
-        "how", "does", "do", "is", "are", "the", "a", "an", "what",
-        "where", "when", "why", "which", "who", "and", "or", "to",
-        "in", "of", "for", "with", "on"
+        "how",
+        "does",
+        "do",
+        "is",
+        "are",
+        "the",
+        "a",
+        "an",
+        "what",
+        "where",
+        "when",
+        "why",
+        "which",
+        "who",
+        "and",
+        "or",
+        "to",
+        "in",
+        "of",
+        "for",
+        "with",
+        "on",
     }
 
     keywords = [
@@ -41,14 +60,68 @@ def expand_question_to_queries(question: str) -> list[str]:
     ]
 
     prioritized = []
-
     lowered = {k.lower() for k in keywords}
 
+    # FastAPI / router-style
     if "router" in lowered or "routers" in lowered:
-        prioritized.extend(["include_router", "APIRouter", "router"])
+        prioritized.extend([
+            "include_router",
+            "APIRouter",
+            "router",
+            "route",
+        ])
 
+    # General route keywords
+    if (
+        "route" in lowered
+        or "routes" in lowered
+        or "url" in lowered
+        or "urls" in lowered
+        or "routed" in lowered
+        or "routing" in lowered
+    ):
+        prioritized.extend([
+            "app.get",
+            "app.post",
+            "app.put",
+            "app.delete",
+            "include_router",
+            "APIRouter",
+            "urlpatterns",
+            "path(",
+            "re_path(",
+            "include(",
+            "URLResolver",
+            "URLPattern",
+            "route",
+            "router",
+        ])
+
+    # Django-specific
+    if "django" in lowered or "url" in lowered or "urls" in lowered:
+        prioritized.extend([
+            "urlpatterns",
+            "path(",
+            "re_path(",
+            "include(",
+            "URLResolver",
+            "URLPattern",
+        ])
+
+    # FastAPI-specific
     if "fastapi" in lowered:
-        prioritized.extend(["FastAPI(", "class FastAPI"])
+        prioritized.extend([
+            "FastAPI(",
+            "class FastAPI",
+        ])
+
+    # Express-specific
+    if "express" in lowered:
+        prioritized.extend([
+            "app.get",
+            "app.use",
+            "router",
+        ])
 
     prioritized.extend(keywords)
     prioritized.append(raw)
@@ -60,7 +133,8 @@ def expand_question_to_queries(question: str) -> list[str]:
             seen.add(q)
             unique_queries.append(q)
 
-    return unique_queries[:8]
+    return unique_queries[:15]
+
 
 @router.post("/", response_model=RepositoryOut)
 def create_repository(payload: RepositoryCreate, db: Session = Depends(get_db)):
@@ -175,6 +249,7 @@ def search_repository_chunks(
     q: str,
     code_only: bool = False,
     exclude_docs: bool = False,
+    exclude_examples: bool = False,
     limit: int = 50,
     db: Session = Depends(get_db),
 ):
@@ -221,6 +296,14 @@ def search_repository_chunks(
         query = query.filter(~normalized_path.like("docs/%"))
         query = query.filter(~normalized_path.like("docs_src/%"))
 
+    if exclude_examples:
+        query = query.filter(~normalized_path.like("examples/%"))
+        query = query.filter(~normalized_path.like("example/%"))
+        query = query.filter(~normalized_path.like("tests/%"))
+        query = query.filter(~normalized_path.like("test/%"))
+        query = query.filter(~normalized_path.like("benchmarks/%"))
+        query = query.filter(~normalized_path.like("benchmark/%"))
+
     results = (
         query.order_by(
             RepoFile.file_type.in_(preferred_types).desc(),
@@ -252,6 +335,7 @@ def retrieve_relevant_chunks(
     limit: int = 5,
     code_only: bool = True,
     exclude_docs: bool = True,
+    exclude_examples: bool = True,
 ):
     preferred_types = [
         "py",
@@ -298,6 +382,14 @@ def retrieve_relevant_chunks(
             query = query.filter(~normalized_path.like("docs/%"))
             query = query.filter(~normalized_path.like("docs_src/%"))
 
+        if exclude_examples:
+            query = query.filter(~normalized_path.like("examples/%"))
+            query = query.filter(~normalized_path.like("example/%"))
+            query = query.filter(~normalized_path.like("tests/%"))
+            query = query.filter(~normalized_path.like("test/%"))
+            query = query.filter(~normalized_path.like("benchmarks/%"))
+            query = query.filter(~normalized_path.like("benchmark/%"))
+
         results = (
             query.order_by(
                 RepoFile.file_type.in_(preferred_types).desc(),
@@ -343,6 +435,7 @@ def ask_repository(repo_id: int, payload: AskRequest, db: Session = Depends(get_
         limit=payload.limit,
         code_only=payload.code_only,
         exclude_docs=payload.exclude_docs,
+        exclude_examples=payload.exclude_examples,
     )
 
     if not contexts:
