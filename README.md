@@ -1,4 +1,4 @@
-# RepoPilot 🚀
+# RepoPilot 
 
 An AI-powered software engineering assistant that allows you to import GitHub repositories and ask intelligent, code-aware questions. RepoPilot leverages semantic search to retrieve relevant code snippets and provides contextual answers about your codebase.
 
